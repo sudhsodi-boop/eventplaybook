@@ -1,0 +1,26 @@
+# Render deployment config (free tier).
+# The app auto-seeds demo data on first boot, so it works immediately.
+# NOTE: Render's FREE tier has an ephemeral filesystem — the SQLite database
+# resets when the service restarts/redeploys or wakes from sleep.
+# For permanent data, upgrade to a paid instance and uncomment the `disk:` block
+# below (plus set DATA_DIR=/var/data), or switch to a hosted database.
+services:
+  - type: web
+    name: eventplaybook
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+    # --- Uncomment for PAID plan to persist data permanently ---
+    # envVars:
+    #   - key: JWT_SECRET
+    #     generateValue: true
+    #   - key: DATA_DIR
+    #     value: /var/data
+    # disk:
+    #   name: eventplaybook-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
