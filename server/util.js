@@ -3,6 +3,13 @@ const jwt = require('jsonwebtoken');
 const { db } = require('./db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'eventplaybook-dev-secret-change-in-prod';
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: JWT_SECRET must be set in production. Refusing to start with the insecure default.');
+    process.exit(1);
+  }
+  console.warn('[security] JWT_SECRET not set — using an insecure development default. Set JWT_SECRET before deploying.');
+}
 
 // Role hierarchy for authorization
 const ROLE_LEVEL = {
@@ -12,6 +19,12 @@ const ROLE_LEVEL = {
   'Event Manager': 4,
   Administrator: 5,
 };
+
+// Approval capability is a separate flag-like role check. Approver, Event Manager
+// and Administrator can approve the schedule (the "Vatsalya" approval step).
+const CAN_APPROVE = ['Approver', 'Event Manager', 'Administrator'];
+// Register Approver in the hierarchy at Coordinator level so it has edit rights too.
+ROLE_LEVEL['Approver'] = 3.5;
 
 function signToken(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, {
@@ -43,10 +56,10 @@ function requireRole(minRole) {
   };
 }
 
-function audit(user, action, entity_type, entity_id, oldValue, newValue) {
+async function audit(user, action, entity_type, entity_id, oldValue, newValue) {
   try {
-    db.prepare(
-      `INSERT INTO audit_logs (user, action, entity_type, entity_id, old_value, new_value) VALUES (?,?,?,?,?,?)`
+    await db.prepare(
+      `INSERT INTO audit_logs ("user", action, entity_type, entity_id, old_value, new_value) VALUES (?,?,?,?,?,?)`
     ).run(
       user ? user.name || user.email : 'system',
       action,
@@ -60,8 +73,8 @@ function audit(user, action, entity_type, entity_id, oldValue, newValue) {
   }
 }
 
-function notify(type, message, event_id, entity_type, entity_id) {
-  db.prepare(
+async function notify(type, message, event_id, entity_type, entity_id) {
+  await db.prepare(
     `INSERT INTO notifications (type, message, event_id, entity_type, entity_id) VALUES (?,?,?,?,?)`
   ).run(type, message, event_id || null, entity_type || null, entity_id || null);
 }
@@ -118,6 +131,7 @@ function validate(fields, body) {
 module.exports = {
   JWT_SECRET,
   ROLE_LEVEL,
+  CAN_APPROVE,
   signToken,
   authRequired,
   requireRole,
