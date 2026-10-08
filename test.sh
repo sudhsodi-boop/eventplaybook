@@ -49,13 +49,46 @@ curl -s -X PUT $B/tasks/$TID -H "Authorization: Bearer $CT" -H 'Content-Type: ap
 TS=$(curl -s $B/events/$EID/tasks -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const t=JSON.parse(d).find(x=>x.id==$TID);console.log(t.status+'|'+(t.completion_date?'dated':'nodate'))})")
 chk "$TS" "Completed|dated" "T9 Task completed with completion_date set"
 
+echo "== Task hierarchy, checklist, comments, dependencies, and attachments =="
+PARENT=$(curl -s $B/events/$EID/tasks -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"title":"Acceptance task parent","offset_days":-21,"priority":"High"}')
+PID=$(echo "$PARENT" | j id); chk "$([ -n "$PID" ] && echo ok)" "ok" "Create parent task"
+CHILD=$(curl -s -X POST $B/tasks/$PID/subtasks -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"title":"Acceptance subtask","offset_days":-14}')
+CID=$(echo "$CHILD" | j id); chk "$(echo "$CHILD" | j parent_task_id)" "$PID" "Create subtask linked to parent"
+GRAND=$(curl -s -X POST $B/tasks/$CID/subtasks -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"title":"Acceptance nested subtask","offset_days":-7}')
+GID=$(echo "$GRAND" | j id); chk "$(echo "$GRAND" | j parent_task_id)" "$CID" "Create nested subtask"
+CYCLE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT $B/tasks/$PID -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d "{\"parent_task_id\":$GID}")
+chk "$CYCLE" "400" "Reject cyclic task hierarchy"
+DETAIL=$(curl -s $B/tasks/$PID/detail -H "Authorization: Bearer $MT")
+DCHILD=$(echo "$DETAIL" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).subtasks.length))")
+chk "$DCHILD" "1" "Task detail returns child subtasks"
+CI=$(curl -s $B/tasks/$PID/checklist-items -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"text":"Acceptance checklist item"}')
+CIID=$(echo "$CI" | j id); chk "$([ -n "$CIID" ] && echo ok)" "ok" "Add task checklist item"
+CIDONE=$(curl -s -X PUT $B/task-checklist-items/$CIID -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"done":true}' | j done)
+chk "$CIDONE" "1" "Complete task checklist item"
+COMMENT=$(curl -s -X POST $B/tasks/$PID/comments -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"body":"Acceptance discussion entry"}' | j body)
+chk "$COMMENT" "Acceptance discussion entry" "Post append-only task comment"
+PRE=$(curl -s $B/events/$EID/tasks -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"title":"Acceptance prerequisite"}')
+PREID=$(echo "$PRE" | j id)
+DEP=$(curl -s -X PUT $B/tasks/$PID/dependencies -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d "{\"depends_on\":[$PREID]}")
+chk "$(echo "$DEP" | j ok)" "true" "Save task dependency"
+DEPCYCLE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT $B/tasks/$PREID/dependencies -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d "{\"depends_on\":[$PID]}")
+chk "$DEPCYCLE" "400" "Reject dependency cycle"
+DELETEP=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE $B/tasks/$PID -H "Authorization: Bearer $MT")
+chk "$DELETEP" "409" "Prevent deleting a task that still has subtasks"
+printf 'Attachment from task workflow integration test\n' >/tmp/eventplaybook-task-test.txt
+ATT=$(curl -s -X POST $B/attachments -H "Authorization: Bearer $MT" -F entity_type=task -F entity_id=$PID -F file=@/tmp/eventplaybook-task-test.txt)
+ATTID=$(echo "$ATT" | j id); chk "$([ -n "$ATTID" ] && echo ok)" "ok" "Upload a task attachment"
+ATTDL=$(curl -s $B/attachments/$ATTID/download -H "Authorization: Bearer $MT" | grep -c 'Attachment from task workflow integration test' || true)
+chk "$ATTDL" "1" "Download task attachment"
+rm -f /tmp/eventplaybook-task-test.txt
+
 echo "== Test 10: event day mode API =="
 ED=$(curl -s "$B/events/$EID/eventday?date=2030-07-25" -H "Authorization: Bearer $MT")
 chk "$(echo "$ED" | j eventDayNum)" "1" "T10 Event Day number = 1 on start date"
 
 echo "== Test 11-13: complete event, auto retro, lessons =="
 curl -s -X PUT $B/events/$EID -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"status":"Completed"}' >/dev/null
-RC=$(curl -s $B/events/$EID/retrospective -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).length)))" 2>/dev/null || echo 0)
+RC=$(curl -s $B/events/$EID/retrospective -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).length))" 2>/dev/null || echo 0)
 chk "$([ "$RC" -gt 0 ] && echo ok)" "ok" "T11/12 Auto retrospective created on completion ($RC items)"
 LC=$(curl -s $B/events/$EID/lessons -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).length))")
 chk "$([ "$LC" -ge 0 ] && echo ok)" "ok" "T13 Lessons endpoint works ($LC AI lessons)"
@@ -67,6 +100,16 @@ curl -s -X PUT $B/milestones/$(echo "$MS" | j id) -H "Authorization: Bearer $MT"
 CLONE=$(curl -s $B/events/$EID/clone -H "Authorization: Bearer $MT" -H 'Content-Type: application/json' -d '{"start_date":"2031-07-25","copy":{"milestones":true,"tasks":true,"announcements":true}}')
 NID=$(echo "$CLONE" | j id); chk "$([ -n "$NID" ] && echo ok)" "ok" "T14 Cloned event created (id=$NID)"
 chk "$(echo "$CLONE" | j previous_event_id)" "$EID" "T14 Clone links to previous event"
+TASK_TREE=$(curl -s $B/events/$NID/tasks -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d),p=a.find(x=>x.title==='Acceptance task parent'),c=a.find(x=>x.title==='Acceptance subtask'),g=a.find(x=>x.title==='Acceptance nested subtask');console.log(p&&c&&g&&Number(c.parent_task_id)===Number(p.id)&&Number(g.parent_task_id)===Number(c.id)?'ok':'bad')})")
+chk "$TASK_TREE" "ok" "Clone preserves nested task parent links"
+CLONED_PARENT_ID=$(curl -s $B/events/$NID/tasks -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).find(x=>x.title==='Acceptance task parent').id))")
+CLONED_DETAIL=$(curl -s $B/tasks/$CLONED_PARENT_ID/detail -H "Authorization: Bearer $MT")
+CLONED_CHECKLIST=$(echo "$CLONED_DETAIL" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const x=JSON.parse(d);console.log(x.checklist.length+':'+(x.checklist[0]?.done||0)+':'+x.comments.length+':'+x.dependencies.length)})")
+chk "$CLONED_CHECKLIST" "1:0:0:1" "Clone copies checklist structure, resets checks, leaves comments behind, and maps dependencies"
+CLONED_ATTS=$(curl -s "$B/attachments?entity_type=task&entity_id=$CLONED_PARENT_ID" -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).length))")
+SOURCE_ATTS=$(curl -s "$B/attachments?entity_type=task&entity_id=$PID" -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).length))")
+SOURCE_COMMENTS=$(curl -s $B/tasks/$PID/detail -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).comments.length))")
+chk "$CLONED_ATTS:$SOURCE_ATTS:$SOURCE_COMMENTS" "0:1:1" "Clone does not copy attachments or comments and leaves prior-event history intact"
 NT=$(curl -s $B/events/$NID/tasks -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const t=JSON.parse(d).find(x=>x.title=='Book venue');console.log(t?t.computed_date:'none')})")
 chk "$NT" "2031-03-27" "T15 Cloned task date recalculated to 2031"
 NM=$(curl -s $B/events/$NID/milestones -H "Authorization: Bearer $MT" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).filter(x=>x.name=='Registration opens').length))")
