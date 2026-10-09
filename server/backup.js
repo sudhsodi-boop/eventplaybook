@@ -1,6 +1,7 @@
 'use strict';
-// Automatic, durable backups. On Postgres we take a logical JSON snapshot of
-// every table (portable and restore-friendly) on an interval.
+// Automatic local JSON snapshots of every table (portable and restore-friendly).
+// On hosting without a persistent disk, these snapshots live on the same ephemeral
+// filesystem as the SQLite file; download one for an off-host copy when needed.
 const path = require('path');
 const fs = require('fs');
 const { db, DATA_DIR } = require('./db');

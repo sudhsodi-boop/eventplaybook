@@ -79,8 +79,8 @@ for (const m of ['get', 'post', 'put', 'delete', 'patch', 'all']) {
   api[m] = (path, ...handlers) => orig(path, ...handlers.map(wrapAsync));
 }
 
-// Lightweight public health check — no auth, no DB. Use this as the ping target
-// for uptime monitors (e.g. UptimeRobot) so a free host never idles to sleep.
+// Lightweight public health check — no auth and no database query. Render uses
+// this endpoint to confirm the web service is responding.
 api.get('/health', (req, res) => { res.json({ status: 'ok', ts: Date.now() }); });
 
 // ---------- helpers ----------

@@ -3,9 +3,22 @@ const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 
 async function reset() {
-  const tables = ['audit_logs', 'approvals', 'notifications', 'attachments', 'templates', 'retrospectives', 'lessons', 'people', 'checklist_items', 'checklists', 'communications', 'announcement_versions', 'announcements', 'tasks', 'milestones', 'phases', 'registration_config', 'department_members', 'departments', 'venues', 'caterers', 'core_team', 'events', 'event_series', 'categories', 'users'];
-  // TRUNCATE with RESTART IDENTITY resets serial sequences and cascades FKs.
-  await db.exec(`TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE`);
+  // Clear dependent rows first and reset SQLite AUTOINCREMENT sequences. This is
+  // used only by the explicit demo seed command; normal deploys never reset data.
+  const tables = [
+    'task_dependencies', 'task_comments', 'task_checklist_items',
+    'announcement_versions', 'checklist_items', 'department_members',
+    'tasks', 'milestones', 'announcements', 'communications', 'checklists',
+    'people', 'lessons', 'retrospectives', 'phases', 'attachments',
+    'notifications', 'approvals', 'audit_logs', 'registration_config',
+    'venues', 'caterers', 'departments', 'core_team', 'events',
+    'event_series', 'templates', 'categories', 'users',
+  ];
+  const tx = db.transaction(async () => {
+    for (const table of tables) await db.prepare(`DELETE FROM "${table}"`).run();
+    await db.prepare('DELETE FROM sqlite_sequence').run();
+  });
+  await tx();
 }
 
 const DEFAULT_CATEGORIES = {
