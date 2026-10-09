@@ -26,7 +26,8 @@ npm start        # http://localhost:3000
 The first user created on an empty database automatically becomes Administrator.
 
 ## Tech
-- **Backend:** Node.js + Express, SQLite (better-sqlite3, normalized schema, FKs, indexes)
+- **Backend:** Node.js + Express, embedded SQLite (better-sqlite3; normalized schema, foreign keys, indexes). The app creates `data/eventplaybook.db` automatically; no external database or connection URL is needed.
+- **Hosting:** GitHub + Render. Render's free filesystem is ephemeral, so download backups if you need an off-host copy; see `DEPLOY.md`.
 - **Auth:** JWT + bcrypt password hashing, server-side role-based authorization
 - **Frontend:** Vanilla JS SPA (no build step), responsive, mobile Event-Day Mode
 - **Files:** multer uploads (PDF/DOCX/XLSX/CSV/images/TXT), metadata preserved

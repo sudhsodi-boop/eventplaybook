@@ -1,7 +1,7 @@
 #!/bin/bash
 # End-to-end acceptance test against running server
 set -e
-B=http://localhost:3000/api
+B="${API_BASE:-http://localhost:${PORT:-3000}}/api"
 PASS=0; FAIL=0
 chk(){ if [ "$1" == "$2" ]; then echo "  ✓ $3"; PASS=$((PASS+1)); else echo "  ✗ $3 (expected '$2' got '$1')"; FAIL=$((FAIL+1)); fi; }
 j(){ node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const o=JSON.parse(d);const k=process.argv[1].split('.');let v=o;for(const p of k)v=v==null?undefined:v[p];console.log(v==null?'':(typeof v==='object'?JSON.stringify(v):v));}catch(e){console.log('PARSE_ERR')}})" "$1"; }

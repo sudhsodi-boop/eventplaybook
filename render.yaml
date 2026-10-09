@@ -1,31 +1,16 @@
-# Render deployment (FREE web service) + external FREE Postgres (Neon/Supabase).
-#
-# EventPlaybook now stores all data in PostgreSQL, so it can run on Render's
-# free web tier WITHOUT losing data on restart — the database lives on Neon
-# (or Supabase), which both have a permanent free tier.
-#
-# SETUP (one time):
-#   1. Create a free Postgres at https://neon.tech (or https://supabase.com).
-#   2. Copy its connection string (looks like:
-#        postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require ).
-#   3. In the Render dashboard for this service, add an env var:
-#        DATABASE_URL = <that connection string>
-#   4. Deploy. The app creates its tables and seeds demo data on first boot.
-#
-# The app auto-seeds demo data on first boot if the database is empty.
+# EventPlaybook runs on Render with its own embedded SQLite file.
+# The SQLite database file is created locally by the app.
+# NOTE: Render free instances have an ephemeral filesystem; see DEPLOY.md.
 services:
   - type: web
     name: eventplaybook
     runtime: node
     plan: free
-    buildCommand: npm install
-    startCommand: node server/index.js
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
     envVars:
       - key: JWT_SECRET
         generateValue: true
       - key: NODE_ENV
         value: production
-      # Set this in the Render dashboard to your Neon/Supabase connection string.
-      # Marked sync:false so Render prompts for it instead of storing it in git.
-      - key: DATABASE_URL
-        sync: false
